@@ -28,6 +28,6 @@ app.get("/", (c) => {
 });
 
 export default {
-  port: 8787,
+  port: Number(process.env.PORT ?? 8787),
   fetch: app.fetch,
 };

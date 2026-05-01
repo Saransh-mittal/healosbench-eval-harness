@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "bun install --frozen-lockfile && bun run --filter web build"
+  },
+  "deploy": {
+    "startCommand": "bun --cwd apps/web start",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}
