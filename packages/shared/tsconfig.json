@@ -2,12 +2,8 @@
   "extends": "@test-evals/config/tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
-    "outDir": "dist",
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "outDir": "dist"
   },
+  "include": ["src"],
   "exclude": ["dist", "**/*.test.ts"]
 }

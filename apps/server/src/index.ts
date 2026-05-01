@@ -4,6 +4,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { runsRoute } from "./routes/runs";
+
 const app = new Hono();
 
 app.use(logger());
@@ -19,8 +21,13 @@ app.use(
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
+app.route("/api/v1/runs", runsRoute);
+
 app.get("/", (c) => {
   return c.text("OK");
 });
 
-export default app;
+export default {
+  port: 8787,
+  fetch: app.fetch,
+};
