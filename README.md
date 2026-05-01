@@ -176,17 +176,22 @@ bun install
 # 2. Configure
 echo "ANTHROPIC_API_KEY=sk-ant-..." > apps/server/.env
 
-# 3. Database (Postgres)
+# 3. Database (Postgres, needed for the dashboard/server API)
 bun run db:push
 
 # 4. Dev (web + server)
 bun run dev
 
-# 5. In another shell — CLI eval
+# 5. CLI eval (standalone; does not require Postgres)
 bun run eval -- --strategy=zero_shot
+
+# Optional: store a CLI run in Postgres for dashboard inspection
+bun run eval -- --strategy=zero_shot --storage=db
 ```
 
 You'll need a Postgres instance running locally. Set `DATABASE_URL` in `apps/server/.env` (e.g. `postgres://postgres:postgres@localhost:5432/healosbench`).
+
+If `ANTHROPIC_API_KEY` is not set, the standalone CLI falls back to an offline smoke baseline so a clean clone can verify the install and eval wiring. Set `ANTHROPIC_API_KEY` for a real Anthropic tool-use eval.
 
 ---
 

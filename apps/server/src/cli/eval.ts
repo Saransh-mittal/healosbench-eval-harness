@@ -1,10 +1,19 @@
+import "dotenv/config";
 import type { CreateRunRequest, PromptStrategy } from "@test-evals/shared";
 import { DEFAULT_MODEL, PROMPT_STRATEGIES } from "@test-evals/shared";
 
-import { getRunDetail } from "../services/results.service";
-import { rescoreEval, runEvalAndWait } from "../services/runner.service";
+import type { StandaloneEvalResult } from "../services/standalone-eval.service";
+import { runStandaloneEval } from "../services/standalone-eval.service";
 
-function parseArgs(argv: string[]): CreateRunRequest {
+type StorageMode = "local" | "db";
+
+interface CliArgs {
+  request: CreateRunRequest;
+  storage: StorageMode;
+  rescoreRunId?: string;
+}
+
+function parseArgs(argv: string[]): CliArgs {
   const parsed: Record<string, string | boolean> = {};
   for (const arg of argv) {
     if (!arg.startsWith("--")) continue;
@@ -16,15 +25,22 @@ function parseArgs(argv: string[]): CreateRunRequest {
   const strategy = String(parsed.strategy ?? "zero_shot") as CreateRunRequest["strategy"];
   const cases = typeof parsed.cases === "string" ? parsed.cases.split(",").filter(Boolean) : undefined;
   const limit = typeof parsed.limit === "string" ? Number(parsed.limit) : undefined;
+  const storage = parsed.storage === "db" ? "db" : "local";
   return {
-    strategy,
-    model: typeof parsed.model === "string" ? parsed.model : DEFAULT_MODEL,
-    force: parsed.force === true || parsed.force === "true",
-    dataset_filter: cases || limit ? { cases, limit } : undefined,
+    request: {
+      strategy,
+      model: typeof parsed.model === "string" ? parsed.model : DEFAULT_MODEL,
+      force: parsed.force === true || parsed.force === "true",
+      dataset_filter: cases || limit ? { cases, limit } : undefined,
+    },
+    storage,
+    rescoreRunId: typeof parsed.rescore === "string" ? parsed.rescore : undefined,
   };
 }
 
-function printRun(detail: Awaited<ReturnType<typeof getRunDetail>>): void {
+async function printDbRun(runId: string): Promise<void> {
+  const { getRunDetail } = await import("../services/results.service");
+  const detail = await getRunDetail(runId);
   if (!detail) return;
   const aggregate = detail.aggregate;
   console.log(`\nRun ${detail.id}`);
@@ -59,15 +75,36 @@ function printRun(detail: Awaited<ReturnType<typeof getRunDetail>>): void {
   }
 }
 
+function printStandaloneRun(result: StandaloneEvalResult): void {
+  const aggregate = result.aggregate;
+  console.log(`\nRun ${result.id}`);
+  console.log(`mode=${result.mode} strategy=${result.strategy} model=${result.model} prompt_hash=${result.promptHash.slice(0, 12)}`);
+  console.log(`artifacts=${result.runDir}`);
+  if (result.mode === "offline_smoke") {
+    console.log("ANTHROPIC_API_KEY is not set, so this was an offline smoke baseline. Set the key for a real LLM eval.");
+  }
+  console.table({
+    macro_field_score: aggregate.macroFieldScore.toFixed(3),
+    average_case_score: aggregate.averageCaseScore.toFixed(3),
+    schema_failure_rate: `${(aggregate.schemaFailureRate * 100).toFixed(1)}%`,
+    hallucinations: aggregate.hallucinationCount,
+    cost_usd: `$${aggregate.totalCostUsd.toFixed(4)}`,
+    cache_read_tokens: aggregate.usage.cacheReadInputTokens,
+  });
+  console.table(
+    Object.entries(aggregate.fieldScores).map(([field, score]) => ({
+      field,
+      score: score.toFixed(3),
+    })),
+  );
+}
+
 async function main(): Promise<void> {
-  const request = parseArgs(process.argv.slice(2));
-  const rescoreArg = process.argv
-    .slice(2)
-    .find((arg) => arg.startsWith("--rescore="))
-    ?.split("=")[1];
-  if (rescoreArg) {
-    await rescoreEval(rescoreArg);
-    printRun(await getRunDetail(rescoreArg));
+  const { request, storage, rescoreRunId } = parseArgs(process.argv.slice(2));
+  if (rescoreRunId) {
+    const { rescoreEval } = await import("../services/runner.service");
+    await rescoreEval(rescoreRunId);
+    await printDbRun(rescoreRunId);
     return;
   }
 
@@ -76,9 +113,16 @@ async function main(): Promise<void> {
   const runIds: string[] = [];
 
   for (const strategy of strategies) {
-    const runId = await runEvalAndWait({ ...request, strategy });
-    runIds.push(runId);
-    printRun(await getRunDetail(runId));
+    if (storage === "db") {
+      const { runEvalAndWait } = await import("../services/runner.service");
+      const runId = await runEvalAndWait({ ...request, strategy });
+      runIds.push(runId);
+      await printDbRun(runId);
+    } else {
+      const result = await runStandaloneEval({ ...request, strategy });
+      runIds.push(result.id);
+      printStandaloneRun(result);
+    }
   }
 
   console.log(`\nCompleted ${runIds.length} run(s): ${runIds.join(", ")}`);
